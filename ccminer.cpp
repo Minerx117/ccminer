@@ -1177,19 +1177,46 @@ static bool gbt_work_decode_full(const json_t *val, struct work *work)
 		}
 		cbvalue = (int64_t)(json_is_integer(tmp) ? json_integer_value(tmp) : json_number_value(tmp));
 		cbtx = (uchar*)malloc(256);
-		le32enc((uint32_t *)cbtx, 1); /* version */
+		le32enc((uint32_t *)cbtx, 2); /* version */
 		cbtx[4] = 1; /* in-counter */
 		memset(cbtx + 5, 0x00, 32); /* prev txout hash */
 		le32enc((uint32_t *)(cbtx + 37), 0xffffffff); /* prev txout index */
-		cbtx_size = 43;
+		
 		/* BIP 34: height in coinbase */
-		for (n = work->height; n; n >>= 8) {
-			cbtx[cbtx_size++] = n & 0xff;
-			if (n < 0x100 && n >= 0x80)
-				cbtx[cbtx_size++] = 0;
+	
+		cbtx_size = 41;
+		unsigned char* script_size_pos = &cbtx[cbtx_size++]; 
+		*script_size_pos = 0;
+		if (work->height >= 1 && work->height <= 16) {
+			cbtx[cbtx_size++] = 0x50 + work->height;
+			(*script_size_pos)++;
 		}
-		cbtx[42] = cbtx_size - 43;
-		cbtx[41] = cbtx_size - 42; /* scriptsig length */
+		else {
+			unsigned char* csnum_pos = &cbtx[cbtx_size++];
+			(*script_size_pos)++;
+
+			*csnum_pos = 0;
+
+			uint64_t bheight = work->height;
+			while (bheight)
+			{
+				cbtx[cbtx_size++] = bheight & 0xff;
+				bheight >>= 8;
+
+				(*csnum_pos)++;
+				(*script_size_pos)++;
+			}
+			if (cbtx[cbtx_size - 1] & 0x80) {
+				cbtx[cbtx_size++] = 0x00;
+
+				(*csnum_pos)++;
+				(*script_size_pos)++;
+			}
+		}
+		cbtx[cbtx_size++] = 0x00;
+		(*script_size_pos)++;
+
+
 		le32enc((uint32_t *)(cbtx + cbtx_size), 0xffffffff); /* sequence */
 		cbtx_size += 4;
 		cbtx[cbtx_size++] = segwit ? 2 : 1; /* out-counter */
